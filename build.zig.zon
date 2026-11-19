@@ -1,0 +1,24 @@
+.{
+    .name = .engine,
+    .version = "0.0.0",
+    .fingerprint = 0xe8a81a8dfa84845b,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .zigglgen = .{
+            .url = "git+https://github.com/castholm/zigglgen.git#fdf06cc7ea9951203f91a27a5548f943cd6c1d59",
+            .hash = "zigglgen-0.5.1-ziggljvILwAsVanrBL96ZTzHPQ1vIQCV_Gnt3mqufzjz",
+        },
+        .sdl = .{
+            .url = "https://github.com/allyourcodebase/SDL/archive/refs/heads/main.tar.gz",
+            .hash = "sdl-1.0.8+3.4.18-i4QD0RcKqgAbRSY4Qa17lJpp7TcF9dtg1X08bExP2QjP",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        // For example...
+        //"LICENSE",
+        //"README.md",
+    },
+}
