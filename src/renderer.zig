@@ -43,6 +43,211 @@ pub const Vertex = extern struct {
     normal: [3]f32 = .{ 0.0, 0.0, 0.0 },
 };
 
+pub const Cubemap = struct {
+    id: c_uint,
+    size: u32,
+
+    pub const Filter = enum {
+        nearest,
+        linear,
+    };
+
+    pub const Options = struct {
+        filter: Filter = .linear,
+        mipmaps: bool = true,
+        repeat: bool = true,
+    };
+
+    const Self = @This();
+
+    pub const faces = [_]c_uint{
+        gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+        gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+        gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+        gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+        gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+        gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
+    };
+
+    pub fn fromRgba8Faces(size: u32, face_pixels: [6][]const u8, options: Options) Self {
+        var id: c_uint = 0;
+        gl.GenTextures(1, @ptrCast(&id));
+        gl.BindTexture(gl.TEXTURE_CUBE_MAP, id);
+
+        gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        for (faces, face_pixels) |target, pixels| {
+            std.debug.assert(pixels.len == @as(usize, size) * size * 4);
+            gl.TexImage2D(
+                target,
+                0,
+                gl.RGBA8,
+                @intCast(size),
+                @intCast(size),
+                0,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                pixels.ptr,
+            );
+        }
+
+        const wrap: c_int = if (options.repeat) gl.REPEAT else gl.CLAMP_TO_EDGE;
+        const mag: c_int = if (options.filter == .linear) gl.LINEAR else gl.NEAREST;
+        const min: c_int = switch (options.filter) {
+            .linear => if (options.mipmaps) gl.LINEAR_MIPMAP_LINEAR else gl.LINEAR,
+            .nearest => if (options.mipmaps) gl.NEAREST_MIPMAP_NEAREST else gl.NEAREST,
+        };
+        gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, wrap);
+        gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, wrap);
+        gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, wrap);
+        gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, min);
+        gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, mag);
+        if (options.mipmaps) gl.GenerateMipmap(gl.TEXTURE_CUBE_MAP);
+
+        return .{
+            .id = id,
+            .size = size,
+        };
+    }
+
+    pub fn fromBmpFaces(data: [6][]const u8, options: Options) !Self {
+        var loaded: [6]*sdl.SDL_Surface = undefined;
+        var count: usize = 0;
+
+        errdefer {
+            for (loaded[0..count]) |surf| sdl.SDL_DestroySurface(surf);
+        }
+
+        for (0..6) |f| {
+            const io = sdl.SDL_IOFromConstMem(data[f].ptr, data[f].len) orelse {
+                logSdlError();
+                return error.ImageLoadFailed;
+            };
+            loaded[f] = sdl.SDL_LoadBMP_IO(io, true) orelse {
+                logSdlError();
+                return error.ImageLoadFailed;
+            };
+            count += 1;
+        }
+
+        count = 0;
+        return fromSurfaces(loaded, options);
+    }
+
+    pub fn fromPngFaces(data: [6][]const u8, options: Options) !Self {
+        var loaded: [6]*sdl.SDL_Surface = undefined;
+        var count: usize = 0;
+
+        errdefer {
+            for (loaded[0..count]) |surf| sdl.SDL_DestroySurface(surf);
+        }
+
+        for (0..6) |f| {
+            const io = sdl.SDL_IOFromConstMem(data[f].ptr, data[f].len) orelse {
+                logSdlError();
+                return error.ImageLoadFailed;
+            };
+            loaded[f] = sdl.SDL_LoadPNG_IO(io, true) orelse {
+                logSdlError();
+                return error.ImageLoadFailed;
+            };
+            count += 1;
+        }
+
+        count = 0;
+        return fromSurfaces(loaded, options);
+    }
+
+    pub fn checkerboard(comptime cells: usize, on_col: Rgba8, off_col: Rgba8) Self {
+        const dim = cells * cells;
+        var px: [6][dim * dim * 4]u8 = undefined;
+        var slices: [6][]const u8 = undefined;
+
+        for (0..6) |f| {
+            for (0..dim) |y| {
+                for (0..dim) |x| {
+                    const on = ((x / cells) + (y / cells)) % 2 == 0;
+                    const i = (y * dim + x) * 4;
+                    px[f][i..][0..4].* = if (on) on_col else off_col;
+                }
+            }
+            slices[f] = &px[f];
+        }
+        return fromRgba8Faces(@intCast(dim), slices, .{
+            .filter = .nearest,
+            .mipmaps = false,
+            .repeat = false,
+        });
+    }
+
+    pub fn solidFaces(cols: [6]Rgba8) Self {
+        var slices: [6][]const u8 = undefined;
+        for (0..6) |f| slices[f] = &cols[f];
+        return fromRgba8Faces(1, slices, .{
+            .filter = .nearest,
+            .mipmaps = false,
+            .repeat = false,
+        });
+    }
+
+    pub fn solid(col: Rgba8) Self {
+        return solidFaces(.{ col, col, col, col, col, col });
+    }
+
+    pub fn deinit(self: Self) void {
+        gl.DeleteTextures(1, @ptrCast(&self.id));
+    }
+
+    fn fromSurfaces(allocator: mem.Allocator, loaded: [6]*sdl.SDL_Surface, options: Options) !Self {
+        defer {
+            for (loaded) |raw| sdl.SDL_DestroySurface(raw);
+        }
+
+        var buffers: [6][]u8 = undefined;
+        var slices: [6][]const u8 = undefined;
+        var allocated: usize = 0;
+
+        errdefer {
+            for (buffers[0..allocated]) |buf| allocator.free(buf);
+        }
+
+        var expected_size: ?usize = null;
+
+        for (0..6) |f| {
+            const surf = sdl.SDL_ConvertSurface(loaded[f], sdl.SDL_PIXELFORMAT_RGBA32) orelse {
+                logSdlError();
+                return error.ImageConvertFailed;
+            };
+            defer sdl.SDL_DestroySurface(surf);
+
+            const w: usize = @intCast(surf.*.w);
+            const h: usize = @intCast(surf.*.h);
+            if (@as(usize, @intCast(surf.*.pitch)) != w * 4) return error.UnexpectedPitch;
+            if (w != h) return error.CubemapFaceIsNotSquare;
+
+            if (expected_size) |s| {
+                if (s != w) return error.CubemapFaceDoesNotMatch;
+            } else {
+                expected_size = w;
+            }
+
+            const byte_len = w * h * 4;
+            const copy = try allocator.alloc(u8, byte_len);
+            const src_ptr: [*]const u8 = @ptrCast(surf.*.pixels.?);
+            @memcpy(copy, src_ptr[0..byte_len]);
+
+            buffers[f] = copy;
+            slices[f] = copy;
+            allocated += 1;
+        }
+
+        const cubemap = fromRgba8Faces(@intCast(expected_size.?), slices, options);
+
+        for (buffers[0..allocated]) |buf| allocator.free(buf);
+
+        return cubemap;
+    }
+};
+
 pub const Texture = struct {
     id: c_uint,
     width: u32,
@@ -69,7 +274,17 @@ pub const Texture = struct {
         gl.BindTexture(gl.TEXTURE_2D, id);
 
         gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1);
-        gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, @intCast(width), @intCast(height), 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels.ptr);
+        gl.TexImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA8,
+            @intCast(width),
+            @intCast(height),
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            pixels.ptr,
+        );
 
         const wrap: c_int = if (options.repeat) gl.REPEAT else gl.CLAMP_TO_EDGE;
         const mag: c_int = if (options.filter == .linear) gl.LINEAR else gl.NEAREST;
@@ -393,6 +608,17 @@ pub const Renderer = struct {
 
     clear_color: [4]f32,
 
+    pub const DepthFunc = enum(c_uint) {
+        Never = gl.NEVER,
+        Less = gl.LESS,
+        Equal = gl.EQUAL,
+        LessEqual = gl.LEQUAL,
+        Greater = gl.GREATER,
+        NotEqual = gl.NOTEQUAL,
+        GreaterEqual = gl.GEQUAL,
+        Always = gl.ALWAYS,
+    };
+
     pub const AntiAliasing = union(enum) {
         none: void,
         msaa: struct {
@@ -402,9 +628,10 @@ pub const Renderer = struct {
     };
 
     pub const InitOptions = struct {
-        depth_test: bool = true,
+        depth_test: bool = true, // make into a func set depth state
         cull_backface: bool = true,
         anti_aliasing: AntiAliasing = .{ .msaa = .{} },
+        clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
     };
 
     const Self = @This();
@@ -419,7 +646,7 @@ pub const Renderer = struct {
         const self = try allocator.create(Self);
         errdefer allocator.destroy(self);
         self.allocator = allocator;
-        self.clear_color = .{ 0.0, 0.0, 0.0, 1.0 };
+        self.clear_color = options.clear_color;
 
         if (!self.procs.init(glProcLoader)) return error.GlLoadFailed;
         gl.makeProcTableCurrent(&self.procs);
@@ -448,6 +675,10 @@ pub const Renderer = struct {
         self.allocator.destroy(self);
     }
 
+    pub fn setDepthFunc(_: *Self, func: DepthFunc) void {
+        gl.DepthFunc(@intFromEnum(func));
+    }
+
     pub fn beginFrame(self: *Self, window: *Window) void {
         window.makeCurrent();
 
@@ -457,8 +688,7 @@ pub const Renderer = struct {
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     }
 
-    pub fn drawMesh(self: *Self, view_proj: Mat4, mesh: Mesh, model: Mat4, texture: Texture, program: Shader) void {
-        _ = self;
+    pub fn drawMesh(_: *Self, view_proj: Mat4, mesh: Mesh, model: Mat4, texture: Texture, program: Shader) void {
         if (mesh.count == 0) return;
 
         program.use();
@@ -478,8 +708,7 @@ pub const Renderer = struct {
         }
     }
 
-    pub fn drawMeshes(self: *Self, view_proj: Mat4, mesh: Mesh, models: []const Mat4, texture: Texture, program: Shader) void {
-        _ = self;
+    pub fn drawMeshes(_: *Self, view_proj: Mat4, mesh: Mesh, models: []const Mat4, texture: Texture, program: Shader) void {
         if (mesh.count == 0) return;
 
         program.use();
@@ -489,8 +718,50 @@ pub const Renderer = struct {
 
         gl.ActiveTexture(gl.TEXTURE0);
         gl.BindTexture(gl.TEXTURE_2D, texture.id);
-        gl.BindVertexArray(mesh.vao);
 
+        gl.BindVertexArray(mesh.vao);
+        for (models) |model| {
+            gl.UniformMatrix4fv(loc.model, 1, gl.FALSE, @ptrCast(&model));
+            if (mesh.indexed) {
+                gl.DrawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+            } else {
+                gl.DrawArrays(gl.TRIANGLES, 0, mesh.count);
+            }
+        }
+    }
+
+    pub fn drawCubemap(_: *Self, view_proj: Mat4, mesh: Mesh, model: Mat4, cubemap: Cubemap, program: Shader) void {
+        if (mesh.count == 0) return;
+
+        program.use();
+
+        gl.UniformMatrix4fv(loc.view_proj, 1, gl.FALSE, @ptrCast(&view_proj));
+        gl.Uniform1i(loc.texture, 0);
+
+        gl.ActiveTexture(gl.TEXTURE0);
+        gl.BindTexture(gl.TEXTURE_CUBE_MAP, cubemap.id);
+        gl.UniformMatrix4fv(loc.model, 1, gl.FALSE, @ptrCast(&model));
+
+        gl.BindVertexArray(mesh.vao);
+        if (mesh.indexed) {
+            gl.DrawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+        } else {
+            gl.DrawArrays(gl.TRIANGLES, 0, mesh.count);
+        }
+    }
+
+    pub fn drawCubemaps(_: *Self, view_proj: Mat4, mesh: Mesh, models: []const Mat4, cubemap: Cubemap, program: Shader) void {
+        if (mesh.count == 0) return;
+
+        program.use();
+
+        gl.UniformMatrix4fv(loc.view_proj, 1, gl.FALSE, @ptrCast(&view_proj));
+        gl.Uniform1i(loc.texture, 0);
+
+        gl.ActiveTexture(gl.TEXTURE0);
+        gl.BindTexture(gl.TEXTURE_CUBE_MAP, cubemap.id);
+
+        gl.BindVertexArray(mesh.vao);
         for (models) |model| {
             gl.UniformMatrix4fv(loc.model, 1, gl.FALSE, @ptrCast(&model));
             if (mesh.indexed) {

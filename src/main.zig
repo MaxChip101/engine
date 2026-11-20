@@ -55,6 +55,15 @@ const cube_indices = [_]u32{
     20, 21, 22, 22, 23, 20, // Bottom
 };
 
+const skybox_indices = [_]u32{
+    0, 2, 1, 2, 0, 3, // Front
+    4, 6, 5, 6, 4, 7, // Back
+    8, 10, 9, 10, 8, 11, // Left
+    12, 14, 13, 14, 12, 15, // Right
+    16, 18, 17, 18, 16, 19, // Top
+    20, 22, 21, 22, 20, 23, // Bottom
+};
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     _ = io;
@@ -69,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
         allocator,
         .{
             .flags = sdl.SDL_WINDOW_RESIZABLE,
-            .vsync = false,
+            .vsync = true,
             .anti_aliasing = .{
                 .msaa = .{
                     .samples = 4,
@@ -95,11 +104,25 @@ pub fn main(init: std.process.Init) !void {
     defer renderer.deinit();
 
     const checker = rd.Texture.checkerboard(
-        16,
+        8,
         .{ 255, 0, 255, 255 },
         .{ 20, 20, 20, 255 },
     );
     defer checker.deinit();
+
+    // const sky_checker = rd.Texture.checkerboard(
+    //     4,
+    //     .{ 0, 255, 255, 255 },
+    //     .{ 0, 0, 200, 255 },
+    // );
+    // defer checker.deinit();
+
+    const sky_cubemap = rd.Cubemap.checkerboard(
+        4,
+        .{ 0, 255, 255, 255 },
+        .{ 0, 0, 200, 255 },
+    );
+    defer sky_cubemap.deinit();
 
     const shader: rd.Shader = try .init(
         allocator,
@@ -107,6 +130,13 @@ pub fn main(init: std.process.Init) !void {
         &.{@embedFile("shaders/fragment.glsl")},
     );
     defer shader.deinit();
+
+    const skybox_shader: rd.Shader = try .init(
+        allocator,
+        &.{@embedFile("shaders/skybox_vertex.glsl")},
+        &.{@embedFile("shaders/skybox_fragment.glsl")},
+    );
+    defer skybox_shader.deinit();
 
     var mesh: rd.Mesh = try .init(
         allocator,
@@ -117,6 +147,16 @@ pub fn main(init: std.process.Init) !void {
         },
     );
     defer mesh.deinit();
+
+    var skybox: rd.Mesh = try .init(
+        allocator,
+        &cube_verts,
+        &skybox_indices,
+        .{
+            .normal_gen = .smooth,
+        },
+    );
+    defer skybox.deinit();
 
     var cam_pos: zm.Vec = .{ 0.0, 1.0, 2.0, 0.0 };
     var cam_rot: zm.Vec = .{ 0.0, 0.0, 0.0, 0.0 };
@@ -141,8 +181,8 @@ pub fn main(init: std.process.Init) !void {
 
         var yaw_input: f32 = 0.0;
         var pitch_input: f32 = 0.0;
-        if (window.input.isDown(.Left)) yaw_input += 1.0;
-        if (window.input.isDown(.Right)) yaw_input -= 1.0;
+        if (window.input.isDown(.Left)) yaw_input -= 1.0;
+        if (window.input.isDown(.Right)) yaw_input += 1.0;
         if (window.input.isDown(.Up)) pitch_input += 1.0;
         if (window.input.isDown(.Down)) pitch_input -= 1.0;
 
@@ -186,10 +226,14 @@ pub fn main(init: std.process.Init) !void {
         const s = window.size();
         const aspect = @as(f32, @floatFromInt(s[0])) / @as(f32, @floatFromInt(s[1]));
 
-        const persp = zm.perspectiveFovRhGl(std.math.degreesToRadians(60.0), aspect, 0.1, 100.0);
+        const persp = zm.perspectiveFovRhGl(std.math.degreesToRadians(60.0), aspect, 0.01, 100.0);
         const view_proj = zm.matToArr(zm.mul(view, persp));
 
+        const stationary_view_proj = zm.matToArr(zm.mul(rot_mat, persp));
+
         renderer.beginFrame(window);
+
+        renderer.setDepthFunc(.Less);
         renderer.drawMesh(
             view_proj,
             mesh,
@@ -197,6 +241,18 @@ pub fn main(init: std.process.Init) !void {
             checker,
             shader,
         );
+
+        renderer.setDepthFunc(.LessEqual);
+        // renderer.drawMesh(
+        //     stationary_view_proj,
+        //     skybox,
+        //     zm.matToArr(zm.identity()),
+        //     sky_checker,
+        //     skybox_shader,
+        // );
+        //
+        renderer.drawCubemap(stationary_view_proj, skybox, zm.matToArr(zm.identity()), sky_cubemap, skybox_shader);
+
         window.swap();
     }
 }
