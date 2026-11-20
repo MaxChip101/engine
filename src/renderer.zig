@@ -5,11 +5,13 @@ const log = std.log;
 const sdl = @import("sdl3");
 const gl = @import("gl");
 
+const Window = @import("windows.zig").Window;
+
 pub const Mat4 = [16]f32;
 // might need later but not now
 // pub const identity: Mat4 = .{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
-pub const Rgba = [4]u8;
+pub const Rgba8 = [4]u8;
 
 // helper functions for computing normals
 fn sub(a: [3]f32, b: [3]f32) [3]f32 {
@@ -116,7 +118,7 @@ pub const Texture = struct {
         return fromSurface(loaded, options);
     }
 
-    pub fn checkerboard(comptime cells: usize, on_col: Rgba, off_col: Rgba) Self {
+    pub fn checkerboard(comptime cells: usize, on_col: Rgba8, off_col: Rgba8) Self {
         const dim = cells * cells;
         var px: [dim * dim * 4]u8 = undefined;
         for (0..dim) |y| {
@@ -129,7 +131,7 @@ pub const Texture = struct {
         return fromRgba8(dim, dim, &px, .{ .filter = .nearest, .mipmaps = false });
     }
 
-    pub fn solid(col: Rgba) Self {
+    pub fn solid(col: Rgba8) Self {
         return fromRgba8(1, 1, &col, .{ .filter = .nearest, .mipmaps = false, .repeat = false });
     }
 
@@ -387,8 +389,6 @@ pub const Shader = struct {
 
 pub const Renderer = struct {
     allocator: mem.Allocator,
-    window: *sdl.SDL_Window,
-    ctx: sdl.SDL_GLContext,
     procs: gl.ProcTable,
 
     clear_color: [4]f32,
@@ -396,18 +396,12 @@ pub const Renderer = struct {
     pub const AntiAliasing = union(enum) {
         none: void,
         msaa: struct {
-            samples: c_int = 4,
             sample_shading: bool = false,
             min_sample_shading: f32 = 1.0,
         },
     };
 
     pub const InitOptions = struct {
-        title: [:0]const u8 = "game",
-        width: c_int = 1280,
-        height: c_int = 720,
-        flags: u64 = sdl.SDL_WINDOW_FULLSCREEN | sdl.SDL_WINDOW_BORDERLESS,
-        vsync: bool = true,
         depth_test: bool = true,
         cull_backface: bool = true,
         anti_aliasing: AntiAliasing = .{ .msaa = .{} },
@@ -426,41 +420,6 @@ pub const Renderer = struct {
         errdefer allocator.destroy(self);
         self.allocator = allocator;
         self.clear_color = .{ 0.0, 0.0, 0.0, 1.0 };
-
-        if (!sdl.SDL_Init(sdl.SDL_INIT_VIDEO)) {
-            logSdlError();
-            return error.SdlInitFailed;
-        }
-        errdefer sdl.SDL_Quit();
-
-        _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-        _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_MINOR_VERSION, 3);
-        _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_PROFILE_MASK, sdl.SDL_GL_CONTEXT_PROFILE_CORE);
-        _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DEPTH_SIZE, 24);
-
-        if (options.anti_aliasing == .msaa) {
-            _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_MULTISAMPLEBUFFERS, 1);
-            _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_MULTISAMPLESAMPLES, options.anti_aliasing.msaa.samples);
-        }
-
-        self.window = sdl.SDL_CreateWindow(
-            options.title,
-            options.width,
-            options.height,
-            options.flags | sdl.SDL_WINDOW_OPENGL,
-        ) orelse {
-            logSdlError();
-            return error.WindowCreateFailed;
-        };
-        errdefer sdl.SDL_DestroyWindow(self.window);
-
-        self.ctx = sdl.SDL_GL_CreateContext(self.window) orelse {
-            logSdlError();
-            return error.GlContextFailed;
-        };
-        errdefer _ = sdl.SDL_GL_DestroyContext(self.ctx);
-
-        _ = sdl.SDL_GL_SetSwapInterval(@intFromBool(options.vsync));
 
         if (!self.procs.init(glProcLoader)) return error.GlLoadFailed;
         gl.makeProcTableCurrent(&self.procs);
@@ -485,55 +444,27 @@ pub const Renderer = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        _ = sdl.SDL_GL_DestroyContext(self.ctx);
-        sdl.SDL_DestroyWindow(self.window);
-        sdl.SDL_Quit();
+        gl.makeProcTableCurrent(null);
         self.allocator.destroy(self);
     }
 
-    pub fn pollEvents(self: *Self) bool {
-        _ = self;
-        var event: sdl.SDL_Event = undefined;
-        while (sdl.SDL_PollEvent(&event)) {
-            switch (event.type) {
-                sdl.SDL_EVENT_QUIT => return false,
-                else => {},
-            }
-        }
-        return true;
-    }
+    pub fn beginFrame(self: *Self, window: *Window) void {
+        window.makeCurrent();
 
-    pub fn time(self: *Self) f32 {
-        _ = self;
-        return @as(f32, @floatFromInt(sdl.SDL_GetTicks())) / 1000.0;
-    }
-
-    pub fn size(self: *Self) [2]i32 {
-        var w: c_int = 0;
-        var h: c_int = 0;
-        _ = sdl.SDL_GetWindowSizeInPixels(self.window, &w, &h);
-        return .{ w, @max(h, 1) };
-    }
-
-    pub fn beginFrame(self: *Self, view_proj: Mat4) void {
-        const s = self.size();
+        const s = window.size();
         gl.Viewport(0, 0, s[0], s[1]);
         gl.ClearColor(self.clear_color[0], self.clear_color[1], self.clear_color[2], self.clear_color[3]);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-        gl.UniformMatrix4fv(loc.view_proj, 1, gl.FALSE, @ptrCast(&view_proj));
-        gl.Uniform1i(loc.texture, 0);
     }
 
-    pub fn endFrame(self: *Self) void {
-        _ = sdl.SDL_GL_SwapWindow(self.window);
-    }
-
-    pub fn drawMesh(self: *Self, mesh: Mesh, model: Mat4, texture: Texture, program: Shader) void {
+    pub fn drawMesh(self: *Self, view_proj: Mat4, mesh: Mesh, model: Mat4, texture: Texture, program: Shader) void {
         _ = self;
         if (mesh.count == 0) return;
 
         program.use();
+
+        gl.UniformMatrix4fv(loc.view_proj, 1, gl.FALSE, @ptrCast(&view_proj));
+        gl.Uniform1i(loc.texture, 0);
 
         gl.ActiveTexture(gl.TEXTURE0);
         gl.BindTexture(gl.TEXTURE_2D, texture.id);
@@ -547,11 +478,14 @@ pub const Renderer = struct {
         }
     }
 
-    pub fn drawMeshes(self: *Self, mesh: Mesh, models: []const Mat4, texture: Texture, program: Shader) void {
+    pub fn drawMeshes(self: *Self, view_proj: Mat4, mesh: Mesh, models: []const Mat4, texture: Texture, program: Shader) void {
         _ = self;
         if (mesh.count == 0) return;
 
         program.use();
+
+        gl.UniformMatrix4fv(loc.view_proj, 1, gl.FALSE, @ptrCast(&view_proj));
+        gl.Uniform1i(loc.texture, 0);
 
         gl.ActiveTexture(gl.TEXTURE0);
         gl.BindTexture(gl.TEXTURE_2D, texture.id);

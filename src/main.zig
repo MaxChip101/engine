@@ -2,9 +2,11 @@ const std = @import("std");
 const heap = std.heap;
 
 const sdl = @import("sdl3");
+const zm = @import("zmath");
 
-const math = @import("math.zig");
 const rd = @import("renderer.zig");
+const windows = @import("windows.zig");
+const input = @import("input.zig");
 
 const cube_verts = [_]rd.Vertex{
     // Front face (+Z)
@@ -63,7 +65,7 @@ pub fn main(init: std.process.Init) !void {
         if (deinit_status == .leak) @panic("TEST FAIL");
     }
 
-    const r = try rd.Renderer.init(
+    const window = try windows.Window.init(
         allocator,
         .{
             .flags = sdl.SDL_WINDOW_RESIZABLE,
@@ -71,13 +73,26 @@ pub fn main(init: std.process.Init) !void {
             .anti_aliasing = .{
                 .msaa = .{
                     .samples = 4,
+                },
+            },
+        },
+    );
+    defer window.deinit();
+
+    const renderer = try rd.Renderer.init(
+        allocator,
+        .{
+            .depth_test = true,
+            .cull_backface = true,
+            .anti_aliasing = .{
+                .msaa = .{
                     .sample_shading = true,
                     .min_sample_shading = 1.0,
                 },
             },
         },
     );
-    defer r.deinit();
+    defer renderer.deinit();
 
     const checker = rd.Texture.checkerboard(
         16,
@@ -103,18 +118,85 @@ pub fn main(init: std.process.Init) !void {
     );
     defer mesh.deinit();
 
-    while (r.pollEvents()) {
-        const t = r.time();
-        const s = r.size();
+    var cam_pos: zm.Vec = .{ 0.0, 1.0, 2.0, 0.0 };
+    var cam_rot: zm.Vec = .{ 0.0, 0.0, 0.0, 0.0 };
+
+    var prev_time = window.time();
+    const move_speed: f32 = 2.0;
+    const turn_speed: f32 = 2.0;
+    const mouse_sensitivity: f32 = 0.0025;
+
+    while (window.pollEvents()) {
+        if (window.input.isPressed(.Escape)) {
+            window.setRelativeMouse(!window.relativeMouse());
+        }
+
+        const now = window.time();
+        const raw_dt = now - prev_time;
+        prev_time = now;
+        const dt = @min(@max(raw_dt, 0.0), 0.1);
+
+        const dx = window.input.mouse_delta[0];
+        const dy = window.input.mouse_delta[1];
+
+        var yaw_input: f32 = 0.0;
+        var pitch_input: f32 = 0.0;
+        if (window.input.isDown(.Left)) yaw_input += 1.0;
+        if (window.input.isDown(.Right)) yaw_input -= 1.0;
+        if (window.input.isDown(.Up)) pitch_input += 1.0;
+        if (window.input.isDown(.Down)) pitch_input -= 1.0;
+
+        cam_rot[1] -= dx * mouse_sensitivity + yaw_input * turn_speed * dt;
+        cam_rot[0] -= dy * mouse_sensitivity - pitch_input * turn_speed * dt;
+
+        const rot = zm.quatFromRollPitchYawV(cam_rot);
+
+        const cam_forward = zm.rotate(rot, .{ 0.0, 0.0, -1.0, 0.0 });
+        const cam_right = zm.rotate(rot, .{ 1.0, 0.0, 0.0, 0.0 });
+
+        var flat_forward = @Vector(4, f32){ cam_forward[0], 0.0, cam_forward[2], 0.0 };
+        var flat_right = @Vector(4, f32){ cam_right[0], 0.0, cam_right[2], 0.0 };
+
+        const f_len = @sqrt(flat_forward[0] * flat_forward[0] + flat_forward[2] * flat_forward[2]);
+        if (f_len > 0.0001) flat_forward /= @splat(f_len);
+
+        const r_len = @sqrt(flat_right[0] * flat_right[0] + flat_right[2] * flat_right[2]);
+        if (r_len > 0.0001) flat_right /= @splat(r_len);
+
+        var wish_dir = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
+        if (window.input.isDown(.W)) wish_dir += flat_forward;
+        if (window.input.isDown(.S)) wish_dir -= flat_forward;
+        if (window.input.isDown(.D)) wish_dir += flat_right;
+        if (window.input.isDown(.A)) wish_dir -= flat_right;
+        if (window.input.isDown(.LeftShift)) wish_dir[1] -= 1.0;
+        if (window.input.isDown(.Space)) wish_dir[1] += 1.0;
+
+        const w_sq = wish_dir[0] * wish_dir[0] + wish_dir[1] * wish_dir[1] + wish_dir[2] * wish_dir[2];
+        if (w_sq > 0.0001) {
+            const w_len = @sqrt(w_sq);
+            wish_dir /= @splat(w_len);
+            cam_pos += wish_dir * @as(@Vector(4, f32), @splat(move_speed * dt));
+        }
+
+        const inv_rot = zm.conjugate(rot);
+        const rot_mat = zm.quatToMat(inv_rot);
+        const trans_mat = zm.translationV(-cam_pos);
+        const view = zm.mul(trans_mat, rot_mat);
+
+        const s = window.size();
         const aspect = @as(f32, @floatFromInt(s[0])) / @as(f32, @floatFromInt(s[1]));
 
-        const eye: math.Vec3 = .{ @cos(t * 0.5) * 10.0, 2.5, @sin(t * 0.5) * 2.0 };
+        const persp = zm.perspectiveFovRhGl(std.math.degreesToRadians(60.0), aspect, 0.1, 100.0);
+        const view_proj = zm.matToArr(zm.mul(view, persp));
 
-        const view = math.lookAt(eye, .{ 0, 0, 0 }, .{ 0, 1, 0 });
-        const proj = math.perspective(std.math.degreesToRadians(60.0), aspect, 0.1, 100.0);
-
-        r.beginFrame(math.mul(proj, view));
-        r.drawMesh(mesh, math.mul(math.translate(0, 0, 0), math.identity()), checker, shader);
-        r.endFrame();
+        renderer.beginFrame(window);
+        renderer.drawMesh(
+            view_proj,
+            mesh,
+            zm.matToArr(zm.identity()),
+            checker,
+            shader,
+        );
+        window.swap();
     }
 }

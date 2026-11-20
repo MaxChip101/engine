@@ -12,6 +12,10 @@
             .url = "https://github.com/allyourcodebase/SDL/archive/refs/heads/main.tar.gz",
             .hash = "sdl-1.0.8+3.4.18-i4QD0RcKqgAbRSY4Qa17lJpp7TcF9dtg1X08bExP2QjP",
         },
+        .zmath = .{
+            .url = "https://github.com/zig-gamedev/zmath/archive/eec8bcae9c4be03b773be0238a073aea4fad175e.tar.gz",
+            .hash = "zmath-0.11.0-dev-wjwivZkvAwAC16QJ7vf1T2tYJl3o9L73TNfSayLu1YfH",
+        },
     },
     .paths = .{
         "build.zig",

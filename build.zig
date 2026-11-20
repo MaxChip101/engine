@@ -15,6 +15,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const zmath = b.dependency("zmath", .{
+        .optimize = optimize,
+        .target = target,
+    });
+
     const exe = b.addExecutable(.{
         .name = "engine",
         //.linkage = .static,
@@ -28,6 +33,7 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("gl", gl_bindings);
     exe.root_module.addImport("sdl3", sdl.module("sdl3"));
+    exe.root_module.addImport("zmath", zmath.module("root"));
 
     // exe.use_lld = true;
     // exe.use_llvm = true;
