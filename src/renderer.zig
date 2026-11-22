@@ -4,6 +4,7 @@ const log = std.log;
 
 const sdl = @import("sdl3");
 const gl = @import("gl");
+const zm = @import("zmath");
 
 const Window = @import("windows.zig").Window;
 
@@ -13,24 +14,15 @@ pub const Mat4 = [16]f32;
 
 pub const Rgba8 = [4]u8;
 
-// helper functions for computing normals
-fn sub(a: [3]f32, b: [3]f32) [3]f32 {
-    return .{ a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+// helper functions for zmath
+fn faceNormal(a: [3]f32, b: [3]f32, c: [3]f32) zm.Vec {
+    const pa = zm.loadArr3(a);
+    return zm.cross3(zm.loadArr3(b) - pa, zm.loadArr3(c) - pa);
 }
-fn cross(a: [3]f32, b: [3]f32) [3]f32 {
-    return .{
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    };
-}
-fn normalize(v: [3]f32) [3]f32 {
-    const len = @sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    if (len == 0) return .{ 0, 0, 1 };
-    return .{ v[0] / len, v[1] / len, v[2] / len };
-}
-fn hasNormal(n: [3]f32) bool {
-    return n[0] != 0 or n[1] != 0 or n[2] != 0;
+
+fn safeNormalize3(v: zm.Vec) zm.Vec {
+    if (zm.lengthSq3(v)[0] < 1e12) return .{ 0.0, 0.0, 1.0, 0.0 };
+    return zm.normalize3(v);
 }
 
 fn logSdlError() void {
@@ -397,7 +389,7 @@ pub const Mesh = struct {
         if (mode == .auto) {
             mode = .provided;
             for (vertices) |v| {
-                if (!hasNormal(v.normal)) {
+                if (zm.lengthSq3(zm.loadArr3(v.normal))[0] == 0.0) {
                     mode = .smooth;
                     break;
                 }
@@ -423,13 +415,10 @@ pub const Mesh = struct {
                 }
                 var t: usize = 0;
                 while (t + 2 < count) : (t += 3) {
-                    const n = normalize(cross(
-                        sub(out[t + 1].pos, out[t].pos),
-                        sub(out[t + 2].pos, out[t].pos),
-                    ));
-                    out[t].normal = n;
-                    out[t + 1].normal = n;
-                    out[t + 2].normal = n;
+                    const n = safeNormalize3(faceNormal(out[t].pos, out[t + 1].pos, out[t + 2].pos));
+                    zm.storeArr3(&out[t].normal, n);
+                    zm.storeArr3(&out[t + 1].normal, n);
+                    zm.storeArr3(&out[t + 2].normal, n);
                 }
                 return upload(out, null);
             },
@@ -495,17 +484,14 @@ pub const Mesh = struct {
         var t: usize = 0;
         while (t + 2 < idx.len) : (t += 3) {
             const tri = [3]u32{ idx[t], idx[t + 1], idx[t + 2] };
-            const n = cross(
-                sub(v[tri[1]].pos, v[tri[0]].pos),
-                sub(v[tri[2]].pos, v[tri[0]].pos),
-            );
+            const n = faceNormal(v[tri[0]].pos, v[tri[1]].pos, v[tri[2]].pos);
             for (tri) |i| {
-                v[i].normal[0] += n[0];
-                v[i].normal[1] += n[1];
-                v[i].normal[2] += n[2];
+                zm.storeArr3(&v[i].normal, zm.loadArr3(v[i].normal) + n);
             }
         }
-        for (v) |*x| x.normal = normalize(x.normal);
+        for (v) |*x| {
+            zm.storeArr3(&x.normal, safeNormalize3(zm.loadArr3(x.normal)));
+        }
     }
 };
 
@@ -542,6 +528,22 @@ pub const Shader = struct {
             return error.ProgramLinkFailed;
         }
         return .{ .program = program };
+    }
+
+    pub fn set(self: Self, name: [:0]const u8, value: anytype) void {
+        const l = self.loc(name);
+        if (l < 0) return;
+
+        switch (@TypeOf(value)) {
+            f32, comptime_float => gl.ProgramUniform1f(self.program, l, value),
+            i32, comptime_int => gl.ProgramUniform1i(self.program, l, value),
+            bool => gl.ProgramUniform1i(self.program, l, @intFromBool(value)),
+            [2]f32 => gl.ProgramUniform2fv(self.program, l, 1, @ptrCast(&value)),
+            [3]f32 => gl.ProgramUniform3fv(self.program, l, 1, @ptrCast(&value)),
+            [4]f32 => gl.ProgramUniform4fv(self.program, l, 1, @ptrCast(&value)),
+            [16]f32 => gl.ProgramUniformMatrix4fv(self.program, l, 1, gl.FALSE, @ptrCast(&value)),
+            else => @compileError("unsupported uniform type: " ++ @typeName(@TypeOf(value))),
+        }
     }
 
     pub fn use(self: Self) void {
@@ -629,9 +631,9 @@ pub const Renderer = struct {
 
     pub const InitOptions = struct {
         depth_test: bool = true, // make into a func set depth state
-        cull_backface: bool = true,
+        cull_backface: bool = true, // per draw call
         anti_aliasing: AntiAliasing = .{ .msaa = .{} },
-        clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
+        clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 }, // already changable just need public functions dedicated for it
     };
 
     const Self = @This();
@@ -651,7 +653,7 @@ pub const Renderer = struct {
         if (!self.procs.init(glProcLoader)) return error.GlLoadFailed;
         gl.makeProcTableCurrent(&self.procs);
 
-        if (options.depth_test) gl.Enable(gl.DEPTH_TEST);
+        if (options.depth_test) gl.Enable(gl.DEPTH_TEST); // per draw call
         if (options.anti_aliasing == .msaa) {
             gl.Enable(gl.MULTISAMPLE);
             if (options.anti_aliasing.msaa.sample_shading) {
@@ -659,13 +661,13 @@ pub const Renderer = struct {
                 gl.MinSampleShading(options.anti_aliasing.msaa.min_sample_shading);
             }
         }
-        if (options.cull_backface) {
+        if (options.cull_backface) { // per draw call
             gl.Enable(gl.CULL_FACE);
             gl.CullFace(gl.BACK);
             gl.FrontFace(gl.CCW);
         }
-        gl.Enable(gl.BLEND);
-        gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.Enable(gl.BLEND); // per draw call
+        gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // same with with this from above
 
         return self;
     }

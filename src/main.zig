@@ -110,13 +110,6 @@ pub fn main(init: std.process.Init) !void {
     );
     defer checker.deinit();
 
-    // const sky_checker = rd.Texture.checkerboard(
-    //     4,
-    //     .{ 0, 255, 255, 255 },
-    //     .{ 0, 0, 200, 255 },
-    // );
-    // defer checker.deinit();
-
     const sky_cubemap = rd.Cubemap.checkerboard(
         4,
         .{ 0, 255, 255, 255 },
@@ -243,14 +236,6 @@ pub fn main(init: std.process.Init) !void {
         );
 
         renderer.setDepthFunc(.LessEqual);
-        // renderer.drawMesh(
-        //     stationary_view_proj,
-        //     skybox,
-        //     zm.matToArr(zm.identity()),
-        //     sky_checker,
-        //     skybox_shader,
-        // );
-        //
         renderer.drawCubemap(stationary_view_proj, skybox, zm.matToArr(zm.identity()), sky_cubemap, skybox_shader);
 
         window.swap();
