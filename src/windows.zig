@@ -18,6 +18,32 @@ pub const Window = struct {
 
     input: input.Input,
 
+    pub const Flags = packed struct {
+        Fullscreen: bool = false,
+        Borderless: bool = false,
+        Resizable: bool = true,
+        HighPixelDensity: bool = true,
+        Hidden: bool = false,
+        Maximixed: bool = false,
+        AlwaysOnTop: bool = false,
+        MouseGrabbed: bool = false,
+        MouseRelative: bool = false,
+
+        fn toSdl(self: Flags) sdl.SDL_WindowFlags {
+            var f: sdl.SDL_WindowFlags = sdl.SDL_WINDOW_OPENGL;
+            if (self.Fullscreen) f |= sdl.SDL_WINDOW_FULLSCREEN;
+            if (self.Borderless) f |= sdl.SDL_WINDOW_BORDERLESS;
+            if (self.Resizable) f |= sdl.SDL_WINDOW_RESIZABLE;
+            if (self.HighPixelDensity) f |= sdl.SDL_WINDOW_HIGH_PIXEL_DENSITY;
+            if (self.Hidden) f |= sdl.SDL_WINDOW_HIDDEN;
+            if (self.Maximixed) f |= sdl.SDL_WINDOW_MAXIMIZED;
+            if (self.AlwaysOnTop) f |= sdl.SDL_WINDOW_ALWAYS_ON_TOP;
+            if (self.MouseGrabbed) f |= sdl.SDL_WINDOW_MOUSE_GRABBED;
+            if (self.MouseRelative) f |= sdl.SDL_WINDOW_MOUSE_RELATIVE_MODE;
+            return f;
+        }
+    };
+
     pub const AntiAliasing = union(enum) {
         none: void,
         msaa: struct {
@@ -25,12 +51,18 @@ pub const Window = struct {
         },
     };
 
+    pub const Vsync = enum(c_int) {
+        Off = 0,
+        On = 1,
+        Adaptive = -1,
+    };
+
     pub const InitOptions = struct {
         title: [:0]const u8 = "game",
         width: c_int = 1280,
         height: c_int = 720,
-        flags: u64 = sdl.SDL_WINDOW_FULLSCREEN | sdl.SDL_WINDOW_BORDERLESS,
-        vsync: bool = true,
+        flags: Flags = .{},
+        vsync: Vsync = .On,
         anti_aliasing: AntiAliasing = .{ .msaa = .{} },
     };
 
@@ -63,7 +95,7 @@ pub const Window = struct {
             options.title,
             options.width,
             options.height,
-            options.flags | sdl.SDL_WINDOW_OPENGL,
+            options.flags.toSdl(),
         ) orelse {
             logSdlError();
             return error.WindowCreateFailed;
@@ -76,7 +108,7 @@ pub const Window = struct {
         };
         errdefer _ = sdl.SDL_GL_DestroyContext(self.ctx);
 
-        _ = sdl.SDL_GL_SetSwapInterval(@intFromBool(options.vsync));
+        _ = sdl.SDL_GL_SetSwapInterval(@intFromEnum(options.vsync));
 
         return self;
     }

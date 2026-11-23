@@ -21,7 +21,7 @@ fn faceNormal(a: [3]f32, b: [3]f32, c: [3]f32) zm.Vec {
 }
 
 fn safeNormalize3(v: zm.Vec) zm.Vec {
-    if (zm.lengthSq3(v)[0] < 1e12) return .{ 0.0, 0.0, 1.0, 0.0 };
+    if (zm.lengthSq3(v)[0] < 1e-12) return .{ 0.0, 0.0, 1.0, 0.0 };
     return zm.normalize3(v);
 }
 
@@ -40,12 +40,12 @@ pub const Cubemap = struct {
     size: u32,
 
     pub const Filter = enum {
-        nearest,
-        linear,
+        Nearest,
+        Linear,
     };
 
     pub const Options = struct {
-        filter: Filter = .linear,
+        filter: Filter = .Linear,
         mipmaps: bool = true,
         repeat: bool = true,
     };
@@ -83,10 +83,10 @@ pub const Cubemap = struct {
         }
 
         const wrap: c_int = if (options.repeat) gl.REPEAT else gl.CLAMP_TO_EDGE;
-        const mag: c_int = if (options.filter == .linear) gl.LINEAR else gl.NEAREST;
+        const mag: c_int = if (options.filter == .Linear) gl.LINEAR else gl.NEAREST;
         const min: c_int = switch (options.filter) {
-            .linear => if (options.mipmaps) gl.LINEAR_MIPMAP_LINEAR else gl.LINEAR,
-            .nearest => if (options.mipmaps) gl.NEAREST_MIPMAP_NEAREST else gl.NEAREST,
+            .Linear => if (options.mipmaps) gl.LINEAR_MIPMAP_LINEAR else gl.LINEAR,
+            .Nearest => if (options.mipmaps) gl.NEAREST_MIPMAP_NEAREST else gl.NEAREST,
         };
         gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, wrap);
         gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, wrap);
@@ -190,7 +190,7 @@ pub const Cubemap = struct {
         return fromRgba8Atlas(allocator, w, h, bytes[0 .. w * h * 4], uv_coords, options);
     }
 
-    pub fn fromBmpFaces(data: [6][]const u8, options: Options) !Self {
+    pub fn fromBmpFaces(allocator: mem.Allocator, data: [6][]const u8, options: Options) !Self {
         var loaded: [6]*sdl.SDL_Surface = undefined;
         var count: usize = 0;
 
@@ -211,10 +211,10 @@ pub const Cubemap = struct {
         }
 
         count = 0;
-        return fromSurfaces(loaded, options);
+        return fromSurfaces(allocator, loaded, options);
     }
 
-    pub fn fromPngFaces(data: [6][]const u8, options: Options) !Self {
+    pub fn fromPngFaces(allocator: mem.Allocator, data: [6][]const u8, options: Options) !Self {
         var loaded: [6]*sdl.SDL_Surface = undefined;
         var count: usize = 0;
 
@@ -236,7 +236,7 @@ pub const Cubemap = struct {
         }
 
         count = 0;
-        return fromSurfaces(loaded, options);
+        return fromSurfaces(allocator, loaded, options);
     }
 
     pub fn checkerboard(comptime cells: usize, on_col: Rgba8, off_col: Rgba8) Self {
@@ -255,7 +255,7 @@ pub const Cubemap = struct {
             slices[f] = &px[f];
         }
         return fromRgba8Faces(@intCast(dim), slices, .{
-            .filter = .nearest,
+            .filter = .Nearest,
             .mipmaps = false,
             .repeat = false,
         });
@@ -265,7 +265,7 @@ pub const Cubemap = struct {
         var slices: [6][]const u8 = undefined;
         for (0..6) |f| slices[f] = &cols[f];
         return fromRgba8Faces(1, slices, .{
-            .filter = .nearest,
+            .filter = .Nearest,
             .mipmaps = false,
             .repeat = false,
         });
@@ -336,12 +336,12 @@ pub const Texture = struct {
     height: u32,
 
     pub const Filter = enum {
-        nearest,
-        linear,
+        Nearest,
+        Linear,
     };
 
     pub const Options = struct {
-        filter: Filter = .linear,
+        filter: Filter = .Linear,
         mipmaps: bool = true,
         repeat: bool = true,
     };
@@ -369,10 +369,10 @@ pub const Texture = struct {
         );
 
         const wrap: c_int = if (options.repeat) gl.REPEAT else gl.CLAMP_TO_EDGE;
-        const mag: c_int = if (options.filter == .linear) gl.LINEAR else gl.NEAREST;
+        const mag: c_int = if (options.filter == .Linear) gl.LINEAR else gl.NEAREST;
         const min: c_int = switch (options.filter) {
-            .linear => if (options.mipmaps) gl.LINEAR_MIPMAP_LINEAR else gl.LINEAR,
-            .nearest => if (options.mipmaps) gl.NEAREST_MIPMAP_NEAREST else gl.NEAREST,
+            .Linear => if (options.mipmaps) gl.LINEAR_MIPMAP_LINEAR else gl.LINEAR,
+            .Nearest => if (options.mipmaps) gl.NEAREST_MIPMAP_NEAREST else gl.NEAREST,
         };
         gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
         gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
@@ -427,11 +427,11 @@ pub const Texture = struct {
                 px[i..][0..4].* = if (on) on_col else off_col;
             }
         }
-        return fromRgba8(dim, dim, &px, .{ .filter = .nearest, .mipmaps = false });
+        return fromRgba8(dim, dim, &px, .{ .filter = .Nearest, .mipmaps = false });
     }
 
     pub fn solid(col: Rgba8) Self {
-        return fromRgba8(1, 1, &col, .{ .filter = .nearest, .mipmaps = false, .repeat = false });
+        return fromRgba8(1, 1, &col, .{ .filter = .Nearest, .mipmaps = false, .repeat = false });
     }
 
     pub fn deinit(self: Self) void {
@@ -462,41 +462,41 @@ pub const Mesh = struct {
     indexed: bool = false,
 
     const NormalGen = enum {
-        auto, // if every vertex provides a normal then use normals, else use compute smooth
-        provided, // uses provided normals
-        smooth, // average face normals at shared vertices (needs indices)
-        flat, // one normal per triangle (duplicates vertices)
+        Auto, // if every vertex provides a normal then use normals, else use compute smooth
+        Provided, // uses provided normals
+        Smooth, // average face normals at shared vertices (needs indices)
+        Flat, // one normal per triangle (duplicates vertices)
     };
 
     pub const Options = struct {
-        normal_gen: NormalGen = .auto,
+        normal_gen: NormalGen = .Auto,
     };
 
     const Self = @This();
 
     pub fn init(allocator: mem.Allocator, vertices: []const Vertex, indices: ?[]const u32, options: Options) !Self {
         var mode = options.normal_gen;
-        if (mode == .auto) {
-            mode = .provided;
+        if (mode == .Auto) {
+            mode = .Provided;
             for (vertices) |v| {
                 if (zm.lengthSq3(zm.loadArr3(v.normal))[0] == 0.0) {
-                    mode = .smooth;
+                    mode = .Smooth;
                     break;
                 }
             }
         }
 
-        if (mode == .smooth and indices == null) mode = .flat;
+        if (mode == .Smooth and indices == null) mode = .Flat;
 
         switch (mode) {
-            .auto, .provided => return upload(vertices, indices),
-            .smooth => {
+            .Auto, .Provided => return upload(vertices, indices),
+            .Smooth => {
                 const copy = try allocator.dupe(Vertex, vertices);
                 defer allocator.free(copy);
                 computeSmooth(copy, indices.?);
                 return upload(copy, indices);
             },
-            .flat => {
+            .Flat => {
                 const count = if (indices) |idx| idx.len else vertices.len;
                 const out = try allocator.alloc(Vertex, count);
                 defer allocator.free(out);
@@ -711,6 +711,34 @@ pub const Renderer = struct {
         Always = gl.ALWAYS,
     };
 
+    pub const DepthState = struct {
+        depth_test: bool = true,
+        write: bool = true,
+        func: DepthFunc = .Less,
+    };
+
+    pub const BlendMode = enum {
+        None,
+        Alpha,
+        Additive,
+    };
+
+    pub const CullMode = enum {
+        None,
+        Back,
+        Front,
+    };
+
+    pub const FrontFace = enum(c_uint) {
+        CounterClockWise = gl.CCW,
+        ClockWise = gl.CW,
+    };
+
+    pub const CullState = struct {
+        mode: CullMode = .Back,
+        front_face: FrontFace = .CounterClockWise,
+    };
+
     pub const AntiAliasing = union(enum) {
         none: void,
         msaa: struct {
@@ -720,10 +748,8 @@ pub const Renderer = struct {
     };
 
     pub const InitOptions = struct {
-        depth_test: bool = true, // make into a func set depth state
-        cull_backface: bool = true, // per draw call
         anti_aliasing: AntiAliasing = .{ .msaa = .{} },
-        clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 }, // already changable just need public functions dedicated for it
+        clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
     };
 
     const Self = @This();
@@ -743,7 +769,6 @@ pub const Renderer = struct {
         if (!self.procs.init(glProcLoader)) return error.GlLoadFailed;
         gl.makeProcTableCurrent(&self.procs);
 
-        if (options.depth_test) gl.Enable(gl.DEPTH_TEST); // per draw call
         if (options.anti_aliasing == .msaa) {
             gl.Enable(gl.MULTISAMPLE);
             if (options.anti_aliasing.msaa.sample_shading) {
@@ -751,13 +776,7 @@ pub const Renderer = struct {
                 gl.MinSampleShading(options.anti_aliasing.msaa.min_sample_shading);
             }
         }
-        if (options.cull_backface) { // per draw call
-            gl.Enable(gl.CULL_FACE);
-            gl.CullFace(gl.BACK);
-            gl.FrontFace(gl.CCW);
-        }
-        gl.Enable(gl.BLEND); // per draw call
-        gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // same with with this from above
+
         gl.Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS);
 
         return self;
@@ -768,8 +787,35 @@ pub const Renderer = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn setDepthFunc(_: *Self, func: DepthFunc) void {
-        gl.DepthFunc(@intFromEnum(func));
+    pub fn setDepthState(_: *Self, state: DepthState) void {
+        if (state.depth_test) gl.Enable(gl.DEPTH_TEST) else gl.Disable(gl.DEPTH_TEST);
+        gl.DepthMask(if (state.write) gl.TRUE else gl.FALSE);
+        gl.DepthFunc(@intFromEnum(state.func));
+    }
+
+    pub fn setCullState(_: *Self, state: CullState) void {
+        switch (state.mode) {
+            .None => gl.Disable(gl.CULL_FACE),
+            .Back, .Front => {
+                gl.Enable(gl.CULL_FACE);
+                gl.CullFace(if (state.mode == .Back) gl.BACK else gl.FRONT);
+                gl.FrontFace(@intFromEnum(state.front_face));
+            },
+        }
+    }
+
+    pub fn setBlend(_: *Self, mode: BlendMode) void {
+        switch (mode) {
+            .None => gl.Disable(gl.BLEND),
+            .Alpha => {
+                gl.Enable(gl.BLEND);
+                gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            },
+            .Additive => {
+                gl.Enable(gl.BLEND);
+                gl.BlendFunc(gl.SRC_ALPHA, gl.ONE);
+            },
+        }
     }
 
     pub fn beginFrame(self: *Self, window: *Window) void {
@@ -777,6 +823,7 @@ pub const Renderer = struct {
 
         const s = window.size();
         gl.Viewport(0, 0, s[0], s[1]);
+        gl.DepthMask(gl.TRUE);
         gl.ClearColor(self.clear_color[0], self.clear_color[1], self.clear_color[2], self.clear_color[3]);
         gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     }

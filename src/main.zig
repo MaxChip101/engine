@@ -115,8 +115,8 @@ pub fn main(init: std.process.Init) !void {
     const window = try windows.Window.init(
         allocator,
         .{
-            .flags = sdl.SDL_WINDOW_RESIZABLE,
-            .vsync = true,
+            .flags = .{},
+            .vsync = .Adaptive,
             .anti_aliasing = .{
                 .msaa = .{
                     .samples = 4,
@@ -129,8 +129,6 @@ pub fn main(init: std.process.Init) !void {
     const renderer = try rd.Renderer.init(
         allocator,
         .{
-            .depth_test = true,
-            .cull_backface = true,
             .anti_aliasing = .{
                 .msaa = .{
                     .sample_shading = true,
@@ -141,18 +139,14 @@ pub fn main(init: std.process.Init) !void {
     );
     defer renderer.deinit();
 
+    renderer.setBlend(.Alpha);
+
     const checker = rd.Texture.checkerboard(
         8,
         .{ 255, 0, 255, 255 },
         .{ 20, 20, 20, 255 },
     );
     defer checker.deinit();
-
-    const skybox_tex = try rd.Texture.fromPng(@embedFile("res/skybox.png"), .{
-        .repeat = false,
-        .mipmaps = false,
-    });
-    defer skybox_tex.deinit();
 
     const sky_cubemap = try rd.Cubemap.fromPngAtlas(
         allocator,
@@ -165,7 +159,7 @@ pub fn main(init: std.process.Init) !void {
             .{ 0.25, 1.0 / 3.0, 0.5, 2.0 / 3.0 }, // +Z
             .{ 0.75, 1.0 / 3.0, 1.0, 2.0 / 3.0 }, // -Z
         },
-        .{},
+        .{ .filter = .Linear, .mipmaps = false, .repeat = false },
     );
     defer sky_cubemap.deinit();
 
@@ -188,7 +182,7 @@ pub fn main(init: std.process.Init) !void {
         &cube_verts,
         &cube_indices,
         .{
-            .normal_gen = .smooth,
+            .normal_gen = .Smooth,
         },
     );
     defer mesh.deinit();
@@ -198,7 +192,7 @@ pub fn main(init: std.process.Init) !void {
         &skybox_verts,
         &skybox_indices,
         .{
-            .normal_gen = .smooth,
+            .normal_gen = .Smooth,
         },
     );
     defer skybox.deinit();
@@ -278,7 +272,8 @@ pub fn main(init: std.process.Init) !void {
 
         renderer.beginFrame(window);
 
-        renderer.setDepthFunc(.Less);
+        renderer.setDepthState(.{});
+        renderer.setCullState(.{});
         renderer.drawMesh(
             view_proj,
             mesh,
@@ -287,15 +282,15 @@ pub fn main(init: std.process.Init) !void {
             shader,
         );
 
-        renderer.setDepthFunc(.LessEqual);
-        // renderer.drawMesh(
-        //     stationary_view_proj,
-        //     skybox,
-        //     zm.matToArr(zm.identity()),
-        //     skybox_tex,
-        //     skybox_shader,
-        // );
+        renderer.setDepthState(.{ .func = .LessEqual, .write = false });
+        // renderer.setCullState(.{ .mode = .Front }); // only set to front if using regular cube indices
         renderer.drawCubemap(stationary_view_proj, skybox, zm.matToArr(zm.identity()), sky_cubemap, skybox_shader);
+
+        // double-sided mesh (leaves, cloth)
+        //renderer.setCullState(.{ .mode = .none });
+
+        // UI / overlay
+        //renderer.setDepthState(.{ .test_enabled = false });
 
         window.swap();
     }
