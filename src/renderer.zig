@@ -101,6 +101,95 @@ pub const Cubemap = struct {
         };
     }
 
+    pub fn fromRgba8Atlas(allocator: mem.Allocator, width: usize, height: usize, pixels: []const u8, uv_coords: [6][4]f32, options: Options) !Self {
+        var size: ?usize = null;
+        var px: [6][4]usize = undefined;
+        for (uv_coords, 0..) |r, f| {
+            const x0: usize = @intFromFloat(@round(r[0] * @as(f32, @floatFromInt(width))));
+            const y0: usize = @intFromFloat(@round(r[1] * @as(f32, @floatFromInt(height))));
+            const x1: usize = @intFromFloat(@round(r[2] * @as(f32, @floatFromInt(width))));
+            const y1: usize = @intFromFloat(@round(r[3] * @as(f32, @floatFromInt(height))));
+
+            if (x1 <= x0 or y1 <= y0 or x1 > width or y1 > height) return error.BadFaceRect;
+            if (x1 - x0 != y1 - y0) return error.CubemapFaceIsNotSquare;
+            if (size) |s| {
+                if (s != x1 - x0) return error.CubemapFaceDoesNotMatch;
+            } else size = x1 - x0;
+
+            px[f] = .{ x0, y0, x1, y1 };
+        }
+
+        const sz = size.?;
+        const face_bytes = sz * sz * 4;
+        const buf = try allocator.alloc(u8, face_bytes * 6);
+        defer allocator.free(buf);
+
+        var slices: [6][]const u8 = undefined;
+        for (px, 0..) |p, f| {
+            for (0..sz) |y| {
+                const s = ((p[1] + y) * width + p[0]) * 4;
+                const d = f * face_bytes + y * sz * 4;
+                @memcpy(buf[d..][0 .. sz * 4], pixels[s..][0 .. sz * 4]);
+            }
+            slices[f] = buf[f * face_bytes ..][0..face_bytes];
+        }
+        return fromRgba8Faces(@intCast(sz), slices, options);
+    }
+
+    pub fn fromBmpAtlas(allocator: mem.Allocator, data: []const u8, uv_coords: [6][4]f32, options: Options) !Self {
+        const io = sdl.SDL_IOFromConstMem(data.ptr, data.len) orelse {
+            logSdlError();
+            return error.ImageLoadFailed;
+        };
+
+        const loaded = sdl.SDL_LoadBMP_IO(io, true) orelse {
+            logSdlError();
+            return error.ImageLoadFailed;
+        };
+        defer sdl.SDL_DestroySurface(loaded);
+
+        const surf = sdl.SDL_ConvertSurface(loaded, sdl.SDL_PIXELFORMAT_RGBA32) orelse {
+            logSdlError();
+            return error.ImageConvertFailed;
+        };
+        defer sdl.SDL_DestroySurface(surf);
+
+        const w: usize = @intCast(surf.*.w);
+        const h: usize = @intCast(surf.*.h);
+        if (@as(usize, @intCast(surf.*.pitch)) != w * 4) return error.UnexpectedPitch;
+
+        const bytes: [*]const u8 = @ptrCast(surf.*.pixels.?);
+
+        return fromRgba8Atlas(allocator, w, h, bytes[0 .. w * h * 4], uv_coords, options);
+    }
+
+    pub fn fromPngAtlas(allocator: mem.Allocator, data: []const u8, uv_coords: [6][4]f32, options: Options) !Self {
+        const io = sdl.SDL_IOFromConstMem(data.ptr, data.len) orelse {
+            logSdlError();
+            return error.ImageLoadFailed;
+        };
+
+        const loaded = sdl.SDL_LoadPNG_IO(io, true) orelse {
+            logSdlError();
+            return error.ImageLoadFailed;
+        };
+        defer sdl.SDL_DestroySurface(loaded);
+
+        const surf = sdl.SDL_ConvertSurface(loaded, sdl.SDL_PIXELFORMAT_RGBA32) orelse {
+            logSdlError();
+            return error.ImageConvertFailed;
+        };
+        defer sdl.SDL_DestroySurface(surf);
+
+        const w: usize = @intCast(surf.*.w);
+        const h: usize = @intCast(surf.*.h);
+        if (@as(usize, @intCast(surf.*.pitch)) != w * 4) return error.UnexpectedPitch;
+
+        const bytes: [*]const u8 = @ptrCast(surf.*.pixels.?);
+
+        return fromRgba8Atlas(allocator, w, h, bytes[0 .. w * h * 4], uv_coords, options);
+    }
+
     pub fn fromBmpFaces(data: [6][]const u8, options: Options) !Self {
         var loaded: [6]*sdl.SDL_Surface = undefined;
         var count: usize = 0;
@@ -142,6 +231,7 @@ pub const Cubemap = struct {
                 logSdlError();
                 return error.ImageLoadFailed;
             };
+
             count += 1;
         }
 
@@ -307,6 +397,7 @@ pub const Texture = struct {
             logSdlError();
             return error.ImageLoadFailed;
         };
+        defer sdl.SDL_DestroySurface(loaded);
 
         return fromSurface(loaded, options);
     }
@@ -321,6 +412,7 @@ pub const Texture = struct {
             logSdlError();
             return error.ImageLoadFailed;
         };
+        defer sdl.SDL_DestroySurface(loaded);
 
         return fromSurface(loaded, options);
     }
@@ -347,8 +439,6 @@ pub const Texture = struct {
     }
 
     fn fromSurface(loaded: *sdl.SDL_Surface, options: Options) !Self {
-        defer sdl.SDL_DestroySurface(loaded);
-
         const surf = sdl.SDL_ConvertSurface(loaded, sdl.SDL_PIXELFORMAT_RGBA32) orelse {
             logSdlError();
             return error.ImageConvertFailed;
@@ -668,6 +758,7 @@ pub const Renderer = struct {
         }
         gl.Enable(gl.BLEND); // per draw call
         gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // same with with this from above
+        gl.Enable(gl.TEXTURE_CUBE_MAP_SEAMLESS);
 
         return self;
     }

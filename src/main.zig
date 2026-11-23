@@ -46,6 +46,44 @@ const cube_verts = [_]rd.Vertex{
     .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 0.0, 1.0 } },
 };
 
+const skybox_verts = [_]rd.Vertex{
+    // Front face (+Z)  -> cell (3,1)
+    .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 1.0, 2.0 / 3.0 } },
+    .{ .pos = .{ 0.5, -0.5, 0.5 }, .uv = .{ 0.75, 2.0 / 3.0 } },
+    .{ .pos = .{ 0.5, 0.5, 0.5 }, .uv = .{ 0.75, 1.0 / 3.0 } },
+    .{ .pos = .{ -0.5, 0.5, 0.5 }, .uv = .{ 1.0, 1.0 / 3.0 } },
+
+    // Back face (-Z)  -> cell (1,1), the center
+    .{ .pos = .{ 0.5, -0.5, -0.5 }, .uv = .{ 0.5, 2.0 / 3.0 } },
+    .{ .pos = .{ -0.5, -0.5, -0.5 }, .uv = .{ 0.25, 2.0 / 3.0 } },
+    .{ .pos = .{ -0.5, 0.5, -0.5 }, .uv = .{ 0.25, 1.0 / 3.0 } },
+    .{ .pos = .{ 0.5, 0.5, -0.5 }, .uv = .{ 0.5, 1.0 / 3.0 } },
+
+    // Left face (-X)  -> cell (0,1)
+    .{ .pos = .{ -0.5, -0.5, -0.5 }, .uv = .{ 0.25, 2.0 / 3.0 } },
+    .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 0.0, 2.0 / 3.0 } },
+    .{ .pos = .{ -0.5, 0.5, 0.5 }, .uv = .{ 0.0, 1.0 / 3.0 } },
+    .{ .pos = .{ -0.5, 0.5, -0.5 }, .uv = .{ 0.25, 1.0 / 3.0 } },
+
+    // Right face (+X)  -> cell (2,1)
+    .{ .pos = .{ 0.5, -0.5, 0.5 }, .uv = .{ 0.75, 2.0 / 3.0 } },
+    .{ .pos = .{ 0.5, -0.5, -0.5 }, .uv = .{ 0.5, 2.0 / 3.0 } },
+    .{ .pos = .{ 0.5, 0.5, -0.5 }, .uv = .{ 0.5, 1.0 / 3.0 } },
+    .{ .pos = .{ 0.5, 0.5, 0.5 }, .uv = .{ 0.75, 1.0 / 3.0 } },
+
+    // Top face (+Y)  -> cell (1,0); its bottom edge (v=1/3) touches the -Z face
+    .{ .pos = .{ -0.5, 0.5, 0.5 }, .uv = .{ 0.25, 0.0 } },
+    .{ .pos = .{ 0.5, 0.5, 0.5 }, .uv = .{ 0.5, 0.0 } },
+    .{ .pos = .{ 0.5, 0.5, -0.5 }, .uv = .{ 0.5, 1.0 / 3.0 } },
+    .{ .pos = .{ -0.5, 0.5, -0.5 }, .uv = .{ 0.25, 1.0 / 3.0 } },
+
+    // Bottom face (-Y)  -> cell (1,2); its top edge (v=2/3) touches the -Z face
+    .{ .pos = .{ -0.5, -0.5, -0.5 }, .uv = .{ 0.25, 2.0 / 3.0 } },
+    .{ .pos = .{ 0.5, -0.5, -0.5 }, .uv = .{ 0.5, 2.0 / 3.0 } },
+    .{ .pos = .{ 0.5, -0.5, 0.5 }, .uv = .{ 0.5, 1.0 } },
+    .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 0.25, 1.0 } },
+};
+
 const cube_indices = [_]u32{
     0, 1, 2, 2, 3, 0, // Front
     4, 5, 6, 6, 7, 4, // Back
@@ -110,10 +148,24 @@ pub fn main(init: std.process.Init) !void {
     );
     defer checker.deinit();
 
-    const sky_cubemap = rd.Cubemap.checkerboard(
-        4,
-        .{ 0, 255, 255, 255 },
-        .{ 0, 0, 200, 255 },
+    const skybox_tex = try rd.Texture.fromPng(@embedFile("res/skybox.png"), .{
+        .repeat = false,
+        .mipmaps = false,
+    });
+    defer skybox_tex.deinit();
+
+    const sky_cubemap = try rd.Cubemap.fromPngAtlas(
+        allocator,
+        @embedFile("res/skybox.png"),
+        .{
+            .{ 0.5, 1.0 / 3.0, 0.75, 2.0 / 3.0 }, // +X
+            .{ 0.0, 1.0 / 3.0, 0.25, 2.0 / 3.0 }, // -X
+            .{ 0.25, 0.0, 0.5, 1.0 / 3.0 }, // +Y
+            .{ 0.25, 2.0 / 3.0, 0.5, 1.0 }, // -Y
+            .{ 0.25, 1.0 / 3.0, 0.5, 2.0 / 3.0 }, // +Z
+            .{ 0.75, 1.0 / 3.0, 1.0, 2.0 / 3.0 }, // -Z
+        },
+        .{},
     );
     defer sky_cubemap.deinit();
 
@@ -143,7 +195,7 @@ pub fn main(init: std.process.Init) !void {
 
     var skybox: rd.Mesh = try .init(
         allocator,
-        &cube_verts,
+        &skybox_verts,
         &skybox_indices,
         .{
             .normal_gen = .smooth,
@@ -236,6 +288,13 @@ pub fn main(init: std.process.Init) !void {
         );
 
         renderer.setDepthFunc(.LessEqual);
+        // renderer.drawMesh(
+        //     stationary_view_proj,
+        //     skybox,
+        //     zm.matToArr(zm.identity()),
+        //     skybox_tex,
+        //     skybox_shader,
+        // );
         renderer.drawCubemap(stationary_view_proj, skybox, zm.matToArr(zm.identity()), sky_cubemap, skybox_shader);
 
         window.swap();
