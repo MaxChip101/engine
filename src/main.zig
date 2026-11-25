@@ -1,12 +1,13 @@
 const std = @import("std");
 const heap = std.heap;
+const atomic = std.atomic;
 
 const sdl = @import("sdl3");
 const zm = @import("zmath");
 
 const rd = @import("renderer.zig");
 const windows = @import("windows.zig");
-const input = @import("input.zig");
+const ad = @import("audio.zig");
 
 const cube_verts = [_]rd.Vertex{
     // Front face (+Z)
@@ -102,6 +103,48 @@ const skybox_indices = [_]u32{
     20, 22, 21, 22, 20, 23, // Bottom
 };
 
+const Player = struct {
+    sound: ad.Sound,
+    looping: bool = false,
+    pos: usize = 0,
+    playing: bool = false,
+    trigger: atomic.Value(bool) = .init(false),
+
+    pub fn play(self: *Player) void {
+        self.trigger.store(true, .release);
+    }
+};
+
+fn soundCallback(ctx: ?*anyopaque, input: []const f32, output: []f32, cfg: ad.Config) void {
+    _ = input;
+    const player: *Player = @ptrCast(@alignCast(ctx.?));
+
+    if (player.trigger.swap(false, .acquire)) {
+        player.pos = 0;
+        player.playing = true;
+    }
+    if (!player.playing) return;
+
+    const ch = cfg.out_channels;
+    const total = player.sound.frames();
+    if (total == 0) return;
+
+    for (0..output.len / ch) |i| {
+        if (player.pos >= total) {
+            if (player.looping) {
+                player.pos = 0;
+            } else {
+                player.playing = false;
+                break;
+            }
+        }
+        for (0..ch) |c| {
+            output[i * ch + c] += player.sound.samples[player.pos * ch + c];
+        }
+        player.pos += 1;
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     _ = io;
@@ -109,7 +152,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = gpa.allocator();
     defer {
         const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) @panic("TEST FAIL");
+        if (deinit_status == .leak) @panic("LEAK DETECTED!");
     }
 
     const window = try windows.Window.init(
@@ -140,6 +183,16 @@ pub fn main(init: std.process.Init) !void {
     defer renderer.deinit();
 
     renderer.setBlend(.Alpha);
+
+    const audio_config: ad.Config = .{};
+
+    const sound = try ad.Sound.sine(allocator, 440, 1, 0.25, audio_config.soundOptions());
+    defer sound.deinit(allocator);
+
+    var player: Player = .{ .sound = sound };
+
+    const audio = try ad.Audio.init(allocator, audio_config, soundCallback, &player);
+    defer audio.deinit();
 
     const checker = rd.Texture.checkerboard(
         8,
@@ -208,6 +261,10 @@ pub fn main(init: std.process.Init) !void {
     while (window.pollEvents()) {
         if (window.input.isPressed(.Escape)) {
             window.setRelativeMouse(!window.relativeMouse());
+        }
+
+        if (window.input.isPressed(.E)) {
+            player.play();
         }
 
         const now = window.time();
