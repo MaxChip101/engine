@@ -1,5 +1,5 @@
 # Engine Client
----
+
 A modular client engine for game developers who wish to have control over the rendering and audio.
 
 ![image of examples/skybox_example](images/engine_showcase.png)
