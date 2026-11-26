@@ -1,5 +1,5 @@
 .{
-    .name = .engine,
+    .name = .engine_client,
     .version = "0.0.1",
     .fingerprint = 0xe8a81a8dfa84845b,
     .minimum_zig_version = "0.16.0",
