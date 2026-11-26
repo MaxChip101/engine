@@ -5,7 +5,7 @@ A modular client engine for game developers who wish to have control over the re
 ![image of examples/skybox_example](images/engine_showcase.png)
 
 ## Getting started
----
+
 #### Add as Zig dependency
 
 use `zig fetch` to get the dependency
@@ -25,7 +25,7 @@ exe.root_module.addImport("engine", engine_mod);
 ```
 
 ## Usage
----
+
 example from `examples/skybox_example`
 ```zig
 const std = @import("std");
