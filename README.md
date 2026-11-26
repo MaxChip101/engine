@@ -1,3 +1,33 @@
+# Engine Client
+---
+A modular client engine for game developers who wish to have control over the rendering and audio.
+
+![image of examples/skybox_example](images/engine_showcase.png)
+
+## Getting started
+---
+#### Add as Zig dependency
+
+use `zig fetch` to get the dependency
+```bash
+zig fetch --save git+https://github.com/MaxChip101/engine-client
+```
+
+#### Import into project
+in `build.zig`
+```zig
+const engine_mod = b.dependency("engine_client", .{
+    .optimize = optimize,
+    .target = target,
+}).module("engine");
+
+exe.root_module.addImport("engine", engine_mod);
+```
+
+## Usage
+---
+example from `examples/skybox_example`
+```zig
 const std = @import("std");
 const heap = std.heap;
 const atomic = std.atomic;
@@ -183,7 +213,7 @@ pub fn main(init: std.process.Init) !void {
 
     const audio_config: engine.Audio.Config = .{};
 
-    const sound = try engine.Sound.fromWav(allocator, @embedFile("res/test_eng.wav"), audio_config.soundOptions());
+    const sound = try engine.Sound.saw(allocator, 440, 1, 0.25, audio_config.soundOptions());
     defer sound.deinit(allocator);
 
     var player: Player = .{ .sound = sound };
@@ -349,3 +379,4 @@ pub fn main(init: std.process.Init) !void {
         window.swap();
     }
 }
+```
