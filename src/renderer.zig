@@ -9,10 +9,8 @@ const zm = @import("zmath");
 const Window = @import("windows.zig").Window;
 
 pub const Mat4 = [16]f32;
-// might need later but not now
-// pub const identity: Mat4 = .{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
-
 pub const Rgba8 = [4]u8;
+pub const RgbaF32 = [4]f32;
 
 // helper functions for zmath
 fn faceNormal(a: [3]f32, b: [3]f32, c: [3]f32) zm.Vec {
@@ -698,7 +696,7 @@ pub const Renderer = struct {
     allocator: mem.Allocator,
     procs: gl.ProcTable,
 
-    clear_color: [4]f32,
+    clear_color: RgbaF32,
 
     pub const DepthFunc = enum(c_uint) {
         Never = gl.NEVER,
@@ -749,7 +747,7 @@ pub const Renderer = struct {
 
     pub const InitOptions = struct {
         anti_aliasing: AntiAliasing = .{ .msaa = .{} },
-        clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
+        clear_color: RgbaF32 = .{ 0.0, 0.0, 0.0, 1.0 },
     };
 
     const Self = @This();

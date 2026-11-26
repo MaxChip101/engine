@@ -2,7 +2,7 @@ const std = @import("std");
 
 const sdl = @import("sdl3");
 
-const Button = enum(usize) {
+pub const ButtonType = enum(usize) {
     @"0",
     @"1",
     @"2",
@@ -61,64 +61,66 @@ const Button = enum(usize) {
     MouseRight,
     MouseMiddle,
 
-    pub fn fromScancode(code: sdl.SDL_Scancode) ?Button {
+    const Self = @This();
+
+    pub fn fromScancode(code: sdl.SDL_Scancode) ?Self {
         return switch (code) {
-            sdl.SDL_SCANCODE_0 => Button.@"0",
-            sdl.SDL_SCANCODE_1 => Button.@"1",
-            sdl.SDL_SCANCODE_2 => Button.@"2",
-            sdl.SDL_SCANCODE_3 => Button.@"3",
-            sdl.SDL_SCANCODE_4 => Button.@"4",
-            sdl.SDL_SCANCODE_5 => Button.@"5",
-            sdl.SDL_SCANCODE_6 => Button.@"6",
-            sdl.SDL_SCANCODE_7 => Button.@"7",
-            sdl.SDL_SCANCODE_8 => Button.@"8",
-            sdl.SDL_SCANCODE_9 => Button.@"9",
-            sdl.SDL_SCANCODE_A => Button.A,
-            sdl.SDL_SCANCODE_B => Button.B,
-            sdl.SDL_SCANCODE_C => Button.C,
-            sdl.SDL_SCANCODE_D => Button.D,
-            sdl.SDL_SCANCODE_E => Button.E,
-            sdl.SDL_SCANCODE_F => Button.F,
-            sdl.SDL_SCANCODE_G => Button.G,
-            sdl.SDL_SCANCODE_H => Button.H,
-            sdl.SDL_SCANCODE_I => Button.I,
-            sdl.SDL_SCANCODE_J => Button.J,
-            sdl.SDL_SCANCODE_K => Button.K,
-            sdl.SDL_SCANCODE_L => Button.L,
-            sdl.SDL_SCANCODE_M => Button.M,
-            sdl.SDL_SCANCODE_N => Button.N,
-            sdl.SDL_SCANCODE_O => Button.O,
-            sdl.SDL_SCANCODE_P => Button.P,
-            sdl.SDL_SCANCODE_Q => Button.Q,
-            sdl.SDL_SCANCODE_R => Button.R,
-            sdl.SDL_SCANCODE_S => Button.S,
-            sdl.SDL_SCANCODE_T => Button.T,
-            sdl.SDL_SCANCODE_U => Button.U,
-            sdl.SDL_SCANCODE_V => Button.V,
-            sdl.SDL_SCANCODE_W => Button.W,
-            sdl.SDL_SCANCODE_X => Button.X,
-            sdl.SDL_SCANCODE_Y => Button.Y,
-            sdl.SDL_SCANCODE_Z => Button.Z,
-            sdl.SDL_SCANCODE_SPACE => Button.Space,
-            sdl.SDL_SCANCODE_LSHIFT => Button.LeftShift,
-            sdl.SDL_SCANCODE_RSHIFT => Button.RightShift,
-            sdl.SDL_SCANCODE_ESCAPE => Button.Escape,
-            sdl.SDL_SCANCODE_LCTRL => Button.LeftControl,
-            sdl.SDL_SCANCODE_RCTRL => Button.RightControl,
-            sdl.SDL_SCANCODE_TAB => Button.Tab,
-            sdl.SDL_SCANCODE_RETURN => Button.Return,
-            sdl.SDL_SCANCODE_BACKSPACE => Button.BackSpace,
-            sdl.SDL_SCANCODE_LALT => Button.LeftAlt,
-            sdl.SDL_SCANCODE_RALT => Button.RightAlt,
-            sdl.SDL_SCANCODE_LEFT => Button.Left,
-            sdl.SDL_SCANCODE_UP => Button.Up,
-            sdl.SDL_SCANCODE_DOWN => Button.Down,
-            sdl.SDL_SCANCODE_RIGHT => Button.Right,
+            sdl.SDL_SCANCODE_0 => .@"0",
+            sdl.SDL_SCANCODE_1 => .@"1",
+            sdl.SDL_SCANCODE_2 => .@"2",
+            sdl.SDL_SCANCODE_3 => .@"3",
+            sdl.SDL_SCANCODE_4 => .@"4",
+            sdl.SDL_SCANCODE_5 => .@"5",
+            sdl.SDL_SCANCODE_6 => .@"6",
+            sdl.SDL_SCANCODE_7 => .@"7",
+            sdl.SDL_SCANCODE_8 => .@"8",
+            sdl.SDL_SCANCODE_9 => .@"9",
+            sdl.SDL_SCANCODE_A => .A,
+            sdl.SDL_SCANCODE_B => .B,
+            sdl.SDL_SCANCODE_C => .C,
+            sdl.SDL_SCANCODE_D => .D,
+            sdl.SDL_SCANCODE_E => .E,
+            sdl.SDL_SCANCODE_F => .F,
+            sdl.SDL_SCANCODE_G => .G,
+            sdl.SDL_SCANCODE_H => .H,
+            sdl.SDL_SCANCODE_I => .I,
+            sdl.SDL_SCANCODE_J => .J,
+            sdl.SDL_SCANCODE_K => .K,
+            sdl.SDL_SCANCODE_L => .L,
+            sdl.SDL_SCANCODE_M => .M,
+            sdl.SDL_SCANCODE_N => .N,
+            sdl.SDL_SCANCODE_O => .O,
+            sdl.SDL_SCANCODE_P => .P,
+            sdl.SDL_SCANCODE_Q => .Q,
+            sdl.SDL_SCANCODE_R => .R,
+            sdl.SDL_SCANCODE_S => .S,
+            sdl.SDL_SCANCODE_T => .T,
+            sdl.SDL_SCANCODE_U => .U,
+            sdl.SDL_SCANCODE_V => .V,
+            sdl.SDL_SCANCODE_W => .W,
+            sdl.SDL_SCANCODE_X => .X,
+            sdl.SDL_SCANCODE_Y => .Y,
+            sdl.SDL_SCANCODE_Z => .Z,
+            sdl.SDL_SCANCODE_SPACE => .Space,
+            sdl.SDL_SCANCODE_LSHIFT => .LeftShift,
+            sdl.SDL_SCANCODE_RSHIFT => .RightShift,
+            sdl.SDL_SCANCODE_ESCAPE => .Escape,
+            sdl.SDL_SCANCODE_LCTRL => .LeftControl,
+            sdl.SDL_SCANCODE_RCTRL => .RightControl,
+            sdl.SDL_SCANCODE_TAB => .Tab,
+            sdl.SDL_SCANCODE_RETURN => .Return,
+            sdl.SDL_SCANCODE_BACKSPACE => .BackSpace,
+            sdl.SDL_SCANCODE_LALT => .LeftAlt,
+            sdl.SDL_SCANCODE_RALT => .RightAlt,
+            sdl.SDL_SCANCODE_LEFT => .Left,
+            sdl.SDL_SCANCODE_UP => .Up,
+            sdl.SDL_SCANCODE_DOWN => .Down,
+            sdl.SDL_SCANCODE_RIGHT => .Right,
             else => null,
         };
     }
 
-    pub fn fromMouseButton(btn: u8) ?Button {
+    pub fn fromMouseButton(btn: u8) ?Self {
         return switch (btn) {
             sdl.SDL_BUTTON_LEFT => .MouseLeft,
             sdl.SDL_BUTTON_RIGHT => .MouseRight,
@@ -128,7 +130,7 @@ const Button = enum(usize) {
     }
 };
 
-const button_len = @typeInfo(Button).@"enum".fields.len;
+const button_len = @typeInfo(ButtonType).@"enum".fields.len;
 
 pub const Input = struct {
     down: [button_len]bool = .{false} ** button_len,
@@ -163,19 +165,19 @@ pub const Input = struct {
 
             sdl.SDL_EVENT_KEY_DOWN => {
                 if (!event.key.repeat) {
-                    if (Button.fromScancode(event.key.scancode)) |b| self.pressButton(b);
+                    if (ButtonType.fromScancode(event.key.scancode)) |b| self.pressButton(b);
                 }
             },
             sdl.SDL_EVENT_KEY_UP => {
                 if (!event.key.repeat) {
-                    if (Button.fromScancode(event.key.scancode)) |b| self.releaseButton(b);
+                    if (ButtonType.fromScancode(event.key.scancode)) |b| self.releaseButton(b);
                 }
             },
             sdl.SDL_EVENT_MOUSE_BUTTON_DOWN => {
-                if (Button.fromMouseButton(event.button.button)) |b| self.pressButton(b);
+                if (ButtonType.fromMouseButton(event.button.button)) |b| self.pressButton(b);
             },
             sdl.SDL_EVENT_MOUSE_BUTTON_UP => {
-                if (Button.fromMouseButton(event.button.button)) |b| self.releaseButton(b);
+                if (ButtonType.fromMouseButton(event.button.button)) |b| self.releaseButton(b);
             },
             sdl.SDL_EVENT_MOUSE_MOTION => {
                 self.mouse_pos = .{ event.motion.x, event.motion.y };
@@ -191,27 +193,27 @@ pub const Input = struct {
         }
     }
 
-    fn pressButton(self: *Input, b: Button) void {
+    fn pressButton(self: *Input, b: ButtonType) void {
         const idx = @intFromEnum(b);
         if (!self.down[idx]) self.pressed[idx] = true;
         self.down[idx] = true;
     }
 
-    fn releaseButton(self: *Input, b: Button) void {
+    fn releaseButton(self: *Input, b: ButtonType) void {
         const idx = @intFromEnum(b);
         if (self.down[idx]) self.released[idx] = true;
         self.down[idx] = false;
     }
 
-    pub fn isDown(self: Input, b: Button) bool {
+    pub fn isDown(self: Input, b: ButtonType) bool {
         return self.down[@intFromEnum(b)];
     }
 
-    pub fn isPressed(self: Input, b: Button) bool {
+    pub fn isPressed(self: Input, b: ButtonType) bool {
         return self.pressed[@intFromEnum(b)];
     }
 
-    pub fn isReleased(self: Input, b: Button) bool {
+    pub fn isReleased(self: Input, b: ButtonType) bool {
         return self.released[@intFromEnum(b)];
     }
 };

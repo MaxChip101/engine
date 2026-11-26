@@ -2,14 +2,11 @@ const std = @import("std");
 const heap = std.heap;
 const atomic = std.atomic;
 
-const sdl = @import("sdl3");
 const zm = @import("zmath");
 
-const rd = @import("renderer.zig");
-const windows = @import("windows.zig");
-const ad = @import("audio.zig");
+const engine = @import("engine");
 
-const cube_verts = [_]rd.Vertex{
+const cube_verts = [_]engine.Vertex{
     // Front face (+Z)
     .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 0.0, 0.0 } },
     .{ .pos = .{ 0.5, -0.5, 0.5 }, .uv = .{ 1.0, 0.0 } },
@@ -47,7 +44,7 @@ const cube_verts = [_]rd.Vertex{
     .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 0.0, 1.0 } },
 };
 
-const skybox_verts = [_]rd.Vertex{
+const skybox_verts = [_]engine.Vertex{
     // Front face (+Z)  -> cell (3,1)
     .{ .pos = .{ -0.5, -0.5, 0.5 }, .uv = .{ 1.0, 2.0 / 3.0 } },
     .{ .pos = .{ 0.5, -0.5, 0.5 }, .uv = .{ 0.75, 2.0 / 3.0 } },
@@ -104,7 +101,7 @@ const skybox_indices = [_]u32{
 };
 
 const Player = struct {
-    sound: ad.Sound,
+    sound: engine.Sound,
     looping: bool = false,
     pos: usize = 0,
     playing: bool = false,
@@ -115,7 +112,7 @@ const Player = struct {
     }
 };
 
-fn soundCallback(ctx: ?*anyopaque, input: []const f32, output: []f32, cfg: ad.Config) void {
+fn soundCallback(ctx: ?*anyopaque, input: []const f32, output: []f32, cfg: engine.Audio.Config) void {
     _ = input;
     const player: *Player = @ptrCast(@alignCast(ctx.?));
 
@@ -155,7 +152,7 @@ pub fn main(init: std.process.Init) !void {
         if (deinit_status == .leak) @panic("LEAK DETECTED!");
     }
 
-    const window = try windows.Window.init(
+    const window = try engine.Window.init(
         allocator,
         .{
             .flags = .{},
@@ -169,7 +166,7 @@ pub fn main(init: std.process.Init) !void {
     );
     defer window.deinit();
 
-    const renderer = try rd.Renderer.init(
+    const renderer = try engine.Renderer.init(
         allocator,
         .{
             .anti_aliasing = .{
@@ -184,24 +181,24 @@ pub fn main(init: std.process.Init) !void {
 
     renderer.setBlend(.Alpha);
 
-    const audio_config: ad.Config = .{};
+    const audio_config: engine.Audio.Config = .{};
 
-    const sound = try ad.Sound.sine(allocator, 440, 1, 0.25, audio_config.soundOptions());
+    const sound = try engine.Sound.fromWav(allocator, @embedFile("res/test_eng.wav"), audio_config.soundOptions());
     defer sound.deinit(allocator);
 
     var player: Player = .{ .sound = sound };
 
-    const audio = try ad.Audio.init(allocator, audio_config, soundCallback, &player);
+    const audio = try engine.Audio.init(allocator, audio_config, soundCallback, &player);
     defer audio.deinit();
 
-    const checker = rd.Texture.checkerboard(
+    const checker = engine.Texture.checkerboard(
         8,
         .{ 255, 0, 255, 255 },
         .{ 20, 20, 20, 255 },
     );
     defer checker.deinit();
 
-    const sky_cubemap = try rd.Cubemap.fromPngAtlas(
+    const sky_cubemap = try engine.Cubemap.fromPngAtlas(
         allocator,
         @embedFile("res/skybox.png"),
         .{
@@ -216,21 +213,21 @@ pub fn main(init: std.process.Init) !void {
     );
     defer sky_cubemap.deinit();
 
-    const shader: rd.Shader = try .init(
+    const shader: engine.Shader = try .init(
         allocator,
         &.{@embedFile("shaders/vertex.glsl")},
         &.{@embedFile("shaders/fragment.glsl")},
     );
     defer shader.deinit();
 
-    const skybox_shader: rd.Shader = try .init(
+    const skybox_shader: engine.Shader = try .init(
         allocator,
         &.{@embedFile("shaders/skybox_vertex.glsl")},
         &.{@embedFile("shaders/skybox_fragment.glsl")},
     );
     defer skybox_shader.deinit();
 
-    var mesh: rd.Mesh = try .init(
+    var mesh: engine.Mesh = try .init(
         allocator,
         &cube_verts,
         &cube_indices,
@@ -240,7 +237,7 @@ pub fn main(init: std.process.Init) !void {
     );
     defer mesh.deinit();
 
-    var skybox: rd.Mesh = try .init(
+    var skybox: engine.Mesh = try .init(
         allocator,
         &skybox_verts,
         &skybox_indices,

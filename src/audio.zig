@@ -9,25 +9,11 @@ fn logSdlError() void {
     log.err("[SDL] error: {s}", .{sdl.SDL_GetError()});
 }
 
-pub const Config = struct {
-    sample_rate: u32 = 44_100,
-    buffer_frames: u32 = 512,
-    in_channels: u32 = 0,
-    out_channels: u32 = 2,
-
-    pub fn soundOptions(self: Config) Sound.Options {
-        return .{
-            .sample_rate = self.sample_rate,
-            .channels = self.out_channels,
-        };
-    }
-};
-
 pub const Callback = *const fn (
     ctx: ?*anyopaque,
     input: []const f32,
     output: []f32,
-    config: Config,
+    config: Audio.Config,
 ) void;
 
 pub const Sound = struct {
@@ -106,6 +92,67 @@ pub const Sound = struct {
             const v = volume * @as(f32, @floatCast(@sin(step * @as(f64, @floatFromInt(i)))));
             for (0..options.channels) |c| samples[i * options.channels + c] = v;
         }
+
+        return .{
+            .samples = samples,
+            .channels = options.channels,
+            .sample_rate = options.sample_rate,
+        };
+    }
+
+    pub fn square(allocator: mem.Allocator, freq: f32, seconds: f32, volume: f32, options: Options) !Self {
+        const rate: f32 = @floatFromInt(options.sample_rate);
+        const frame_count: usize = @intFromFloat(seconds * rate);
+        const samples = try allocator.alloc(f32, frame_count * options.channels);
+
+        const step: f64 = @as(f64, freq) / rate;
+        for (0..frame_count) |i| {
+            const phase = @mod(@as(f64, @floatFromInt(i)) * step, 1.0);
+            const wave: f32 = if (phase < 0.5) 1.0 else -1.0;
+            const v = volume * wave;
+            for (0..options.channels) |c| samples[i * options.channels + c] = v;
+        }
+
+        return .{
+            .samples = samples,
+            .channels = options.channels,
+            .sample_rate = options.sample_rate,
+        };
+    }
+
+    pub fn saw(allocator: mem.Allocator, freq: f32, seconds: f32, volume: f32, options: Options) !Self {
+        const rate: f32 = @floatFromInt(options.sample_rate);
+        const frame_count: usize = @intFromFloat(seconds * rate);
+        const samples = try allocator.alloc(f32, frame_count * options.channels);
+
+        const step: f64 = @as(f64, freq) / rate;
+        for (0..frame_count) |i| {
+            const phase = @mod(@as(f64, @floatFromInt(i)) * step, 1.0);
+            const wave: f32 = @floatCast(2.0 * phase - 1.0);
+            const v = volume * wave;
+            for (0..options.channels) |c| samples[i * options.channels + c] = v;
+        }
+
+        return .{
+            .samples = samples,
+            .channels = options.channels,
+            .sample_rate = options.sample_rate,
+        };
+    }
+
+    pub fn triangle(allocator: mem.Allocator, freq: f32, seconds: f32, volume: f32, options: Options) !Self {
+        const rate: f32 = @floatFromInt(options.sample_rate);
+        const frame_count: usize = @intFromFloat(seconds * rate);
+        const samples = try allocator.alloc(f32, frame_count * options.channels);
+
+        const step: f64 = @as(f64, freq) / rate;
+        for (0..frame_count) |i| {
+            const phase = @mod(@as(f64, @floatFromInt(i)) * step, 1.0);
+            const wave: f32 = @floatCast(4.0 * @abs(phase - 0.5) - 1.0);
+            const v = volume * wave;
+            for (0..options.channels) |c| samples[i * options.channels + c] = v;
+        }
+
         return .{
             .samples = samples,
             .channels = options.channels,
@@ -157,7 +204,6 @@ pub const Sound = struct {
     }
 };
 
-// impl audio from sdl
 pub const Audio = struct {
     allocator: mem.Allocator,
     config: Config,
@@ -170,6 +216,20 @@ pub const Audio = struct {
     dropped: atomic.Value(u32) = .init(0),
 
     const Self = @This();
+
+    pub const Config = struct {
+        sample_rate: u32 = 44_100,
+        buffer_frames: u32 = 512,
+        in_channels: u32 = 0,
+        out_channels: u32 = 2,
+
+        pub fn soundOptions(self: Config) Sound.Options {
+            return .{
+                .sample_rate = self.sample_rate,
+                .channels = self.out_channels,
+            };
+        }
+    };
 
     pub fn init(allocator: mem.Allocator, config: Config, callback: Callback, ctx: ?*anyopaque) !*Self {
         if (config.out_channels == 0 or config.buffer_frames == 0) return error.InvalidConfig;
@@ -295,7 +355,7 @@ pub const Audio = struct {
     }
 };
 
-fn outSpec(config: Config) sdl.SDL_AudioSpec {
+fn outSpec(config: Audio.Config) sdl.SDL_AudioSpec {
     return .{
         .format = sdl.SDL_AUDIO_F32,
         .channels = @intCast(config.out_channels),
@@ -303,60 +363,10 @@ fn outSpec(config: Config) sdl.SDL_AudioSpec {
     };
 }
 
-fn inSpec(config: Config) sdl.SDL_AudioSpec {
+fn inSpec(config: Audio.Config) sdl.SDL_AudioSpec {
     return .{
         .format = sdl.SDL_AUDIO_F32,
         .channels = @intCast(config.in_channels),
         .freq = @intCast(config.sample_rate),
-    };
-}
-
-fn SpscQueue(comptime T: type) type {
-    return struct {
-        buf: []T,
-        mask: usize,
-        head: atomic.Value(usize) align(64) = .init(0),
-        tail: atomic.Value(usize) align(64) = .init(0),
-
-        const Self = @This();
-
-        pub fn init(allocator: mem.Allocator, min_len: usize) !Self {
-            const cap = try std.math.ceilPowerOfTwo(usize, @max(min_len, 2));
-            const buf = try allocator.alloc(T, cap);
-            return .{ .buf = buf, .mask = cap - 1 };
-        }
-
-        pub fn deinit(self: *Self, allocator: mem.Allocator) void {
-            allocator.free(self.buf);
-            self.* = undefined;
-        }
-
-        pub fn write(self: *Self, src: []const T) usize {
-            const head = self.head.load(.monotonic);
-            const tail = self.tail.load(.acquire);
-            const n = @min(src.len, self.buf.len - (head -% tail));
-            const start = head & self.mask;
-            const first = @min(n, self.buf.len - start); // up to the end of the buffer
-            @memcpy(self.buf[start..][0..first], src[0..first]);
-            @memcpy(self.buf[0 .. n - first], src[first..n]); // wrapped part
-            self.head.store(head +% n, .release);
-            return n;
-        }
-
-        pub fn read(self: *Self, dst: []T) usize {
-            const tail = self.tail.load(.monotonic);
-            const head = self.head.load(.acquire);
-            const n = @min(dst.len, head -% tail);
-            const start = tail & self.mask;
-            const first = @min(n, self.buf.len - start);
-            @memcpy(dst[0..first], self.buf[start..][0..first]);
-            @memcpy(dst[first..n], self.buf[0 .. n - first]);
-            self.tail.store(tail +% n, .release);
-            return n;
-        }
-
-        pub fn available(self: *const Self) usize {
-            return self.head.load(.acquire) -% self.tail.load(.monotonic);
-        }
     };
 }
