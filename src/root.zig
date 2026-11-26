@@ -3,7 +3,7 @@ const renderer = @import("renderer.zig");
 const input = @import("input.zig");
 const audio = @import("audio.zig");
 
-const version = "0.0.1";
+pub const version = "0.0.1";
 
 pub const Window = window.Window;
 
